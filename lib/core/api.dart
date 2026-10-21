@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:dio/dio.dart';
 import 'config.dart';
+import 'device_service.dart';
 import 'json.dart';
 
 class ApiResult {
@@ -36,17 +39,68 @@ class ApiClient {
     validateStatus: (s) => s != null && s < 600,
   ));
 
-  String? token;
   void Function()? onUnauthorized;
 
-  Options _options() =>
-      Options(headers: token == null ? null : {'Authorization': 'Bearer $token'});
+  // ---- session token ----
+  // Setting a token starts the heartbeat that keeps this phone's session alive.
+  // Clearing it (logout / expired) tells the server so the account is freed.
+  String? _token;
+  Timer? _heartbeat;
+
+  String? get token => _token;
+
+  set token(String? value) {
+    final old = _token;
+    _token = value;
+    _heartbeat?.cancel();
+    _heartbeat = null;
+
+    if (value != null) {
+      _ping();
+      _heartbeat = Timer.periodic(const Duration(minutes: 5), (_) => _ping());
+    } else if (old != null) {
+      _logoutOnServer(old);
+    }
+  }
+
+  /// A 401 here means the session was replaced or expired; _run() then calls onUnauthorized.
+  Future<void> _ping() async {
+    if (_token == null) return;
+    await postJson('/api/Login/heartbeat');
+  }
+
+  /// Fire and forget; uses the old token because _token is already cleared.
+  Future<void> _logoutOnServer(String oldToken) async {
+    try {
+      await _dio.post<dynamic>(
+        '/api/Login/logout',
+        options: Options(headers: {'Authorization': 'Bearer $oldToken'}),
+      );
+    } catch (_) {}
+  }
+
+  Options _options() => Options(
+      headers: _token == null ? null : {'Authorization': 'Bearer $_token'});
+
+  static bool _isLoginPath(String p) =>
+      p.toLowerCase().replaceAll(RegExp(r'^/+|/+$'), '') == 'api/login';
 
   Future<ApiResult> get(String path) =>
       _run(() => _dio.get<dynamic>(path, options: _options()));
 
-  Future<ApiResult> postJson(String path, [Object? body]) =>
-      _run(() => _dio.post<dynamic>(path, data: body, options: _options()));
+  Future<ApiResult> postJson(String path, [Object? body]) async {
+    var payload = body;
+    // The login request always carries this phone's id and name.
+    if (_isLoginPath(path) && body is Map) {
+      payload = {
+        ...body,
+        'deviceId': await DeviceService.id(),
+        'deviceName': await DeviceService.name(),
+      };
+    }
+    return _run(
+        () => _dio.post<dynamic>(path, data: payload, options: _options()));
+  }
 
   Future<ApiResult> putJson(String path, Object body) =>
       _run(() => _dio.put<dynamic>(path, data: body, options: _options()));
@@ -67,8 +121,9 @@ class ApiClient {
       if (raw is Map) m = norm(raw) as Map<String, dynamic>;
 
       if (code == 401) {
-        // Token expired (the API issues 60-minute tokens) or invalid
-        if (token != null) onUnauthorized?.call();
+        // Token expired (the API issues 60-minute tokens), invalid, or the account
+        // was logged in on another device
+        if (_token != null) onUnauthorized?.call();
         return const ApiResult(
           ok: false,
           httpStatus: 401,

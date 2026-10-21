@@ -2,7 +2,7 @@ class AppConfig {
   /// IPv4 address of the laptop that runs the API (run `ipconfig` on that laptop)
   /// plus the port from launchSettings.json. Both devices must be on the same hotspot.
   /// This is the ONLY line you change when the hotspot gives the laptop a new IP.
-  static const String baseUrl = 'http://192.168.49.185:5299';
+  static const String baseUrl = 'http://10.84.96.192:5299';
 
   // Shown on the Home screen (edit to the real barangay details)
   static const String barangayName = 'Manguikay';
