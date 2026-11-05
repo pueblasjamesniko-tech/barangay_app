@@ -6,6 +6,7 @@ import '../models/models.dart';
 import '../services/repo.dart';
 import '../widgets/common.dart';
 import '../widgets/picker.dart';
+import 'live_selfie_screen.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -75,7 +76,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
   }
 
   Future<void> _pick(int which) async {
-    final p = await pickOne(context, selfie: which == 3);
+    // 1 = ID front, 2 = ID back  -> normal picker (gallery / camera)
+    // 3 = selfie                 -> LIVE camera only, no gallery
+    final Picked? p = which == 3
+        ? await Navigator.of(context).push<Picked>(MaterialPageRoute(
+            fullscreenDialog: true,
+            builder: (_) => const LiveSelfieScreen(),
+          ))
+        : await pickOne(context);
     if (p == null || !mounted) return;
     setState(() {
       if (which == 1) _front = p;
@@ -116,9 +124,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
       barrierDismissible: false,
       builder: (ctx) => AlertDialog(
         title: const Text('Registration submitted'),
-        content: const Text(
-            'Your account is now waiting for admin verification. '
-            'You can log in once the barangay approves it.'),
+        content:
+            const Text('Your account is now waiting for admin verification. '
+                'You can log in once the barangay approves it.'),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(ctx), child: const Text('OK')),
@@ -150,7 +158,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Icon(Icons.arrow_back, color: Colors.white, size: 18),
+                      const Icon(Icons.arrow_back,
+                          color: Colors.white, size: 18),
                       const SizedBox(width: 8),
                       Text(
                         _step == 2
@@ -182,7 +191,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   _step == 1
                       ? "Let's get started with you basic information."
                       : 'Set up your account and verify your identity.',
-                  style: GoogleFonts.poppins(color: Colors.white70, fontSize: 11.5),
+                  style: GoogleFonts.poppins(
+                      color: Colors.white70, fontSize: 11.5),
                 ),
                 const SizedBox(height: 14),
                 Text('Step $_step of 2',
@@ -218,7 +228,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
         padding: const EdgeInsets.only(bottom: 14),
         child: Text(t,
             style: GoogleFonts.poppins(
-                color: Colors.white, fontSize: 15, fontWeight: FontWeight.w700)),
+                color: Colors.white,
+                fontSize: 15,
+                fontWeight: FontWeight.w700)),
       );
 
   // ---------------- step 1 ----------------
@@ -299,8 +311,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
       isExpanded: true,
       dropdownColor: Colors.white,
       style: GoogleFonts.poppins(fontSize: 14, color: AppColors.text),
-      decoration:
-          appInputDecoration(hint: 'Select your Purok / Zone', icon: Icons.place_outlined),
+      decoration: appInputDecoration(
+          hint: 'Select your Purok / Zone', icon: Icons.place_outlined),
       items: [
         for (final p in _puroks!)
           DropdownMenuItem<int>(
@@ -326,10 +338,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
             controller: _username,
             hint: 'Choose a username',
             icon: Icons.person_outline,
-            validator: (v) => RegExp(r'^[A-Za-z0-9_.]{4,30}$')
-                    .hasMatch((v ?? '').trim())
-                ? null
-                : '4-30 characters: letters, numbers, _ or .',
+            validator: (v) =>
+                RegExp(r'^[A-Za-z0-9_.]{4,30}$').hasMatch((v ?? '').trim())
+                    ? null
+                    : '4-30 characters: letters, numbers, _ or .',
           ),
           const SizedBox(height: 14),
           const FieldLabel('Password'),
@@ -364,8 +376,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
             isExpanded: true,
             dropdownColor: Colors.white,
             style: GoogleFonts.poppins(fontSize: 14, color: AppColors.text),
-            decoration:
-                appInputDecoration(hint: 'Select ID type', icon: Icons.badge_outlined),
+            decoration: appInputDecoration(
+                hint: 'Select ID type', icon: Icons.badge_outlined),
             items: [
               for (final e in _idTypes.entries)
                 DropdownMenuItem<String>(value: e.key, child: Text(e.value)),
@@ -392,7 +404,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
           const SizedBox(height: 12),
           _UploadBox(
             title: 'Live selfie',
-            hint: 'Take a clear photo of your face',
+            hint: 'Opens your camera - take a clear photo of your face',
             icon: Icons.camera_alt_outlined,
             picked: _selfie,
             onTap: () => _pick(3),
