@@ -14,10 +14,11 @@ import 'create_post_screen.dart';
 
 String requestRef(int id) => '#${id.toString().padLeft(5, '0')}';
 
-/// "Requests" tab: everything the logged-in resident has submitted, with its status.
+/// "My Reports": everything this resident has sent, with its status.
 /// The API returns all complaints, so we keep only the ones that belong to this user.
 class RequestsTab extends StatefulWidget {
-  const RequestsTab({super.key});
+  final void Function(int)? onGoto;
+  const RequestsTab({super.key, this.onGoto});
 
   @override
   State<RequestsTab> createState() => _RequestsTabState();
@@ -26,7 +27,7 @@ class RequestsTab extends StatefulWidget {
 class _RequestsTabState extends State<RequestsTab> {
   List<Complaint>? _mine;
   String? _error;
-  int _filter = 0; // 0 All, 1 Pending, 2 Resolved
+  int _filter = 0; // 0 All, 1 Pending, 2 In progress, 3 Resolved
 
   @override
   void initState() {
@@ -56,32 +57,54 @@ class _RequestsTabState extends State<RequestsTab> {
       if (!mounted) return;
       if (_mine == null) {
         setState(() => _error =
-            e is ApiException ? e.message : 'Could not load your requests.');
+            e is ApiException ? e.message : 'Could not load your reports.');
       }
     }
   }
 
+  int _count(ReportStage s) => (_mine ?? const <Complaint>[])
+      .where((c) => stageOf(c.status) == s)
+      .length;
+
   List<Complaint> get _visible {
     final l = _mine ?? const <Complaint>[];
-    if (_filter == 1) return l.where((c) => !c.isResolved).toList();
-    if (_filter == 2) return l.where((c) => c.isResolved).toList();
-    return l;
+    switch (_filter) {
+      case 1:
+        return l
+            .where((c) => stageOf(c.status) == ReportStage.pending)
+            .toList();
+      case 2:
+        return l
+            .where((c) => stageOf(c.status) == ReportStage.inProgress)
+            .toList();
+      case 3:
+        return l
+            .where((c) => stageOf(c.status) == ReportStage.resolved)
+            .toList();
+      default:
+        return l;
+    }
   }
 
-  void _openNew() => Navigator.of(context)
-      .push(MaterialPageRoute(builder: (_) => const CreatePostScreen()));
+  void _openNew() => openReportFlow(context, widget.onGoto ?? (_) {});
 
   @override
   Widget build(BuildContext context) {
+    final total = _mine?.length ?? 0;
     return Column(
       children: [
         const TabHeader(
-          title: 'My Requests',
-          subtitle: 'Track the status of your reports',
+          title: 'My Reports',
+          subtitle: 'Follow the progress of your reports',
         ),
         const SizedBox(height: 12),
         FilterChips(
-          labels: const ['All', 'Pending', 'Resolved'],
+          labels: [
+            'All ($total)',
+            'Pending (${_count(ReportStage.pending)})',
+            'In progress (${_count(ReportStage.inProgress)})',
+            'Resolved (${_count(ReportStage.resolved)})',
+          ],
           selected: _filter,
           onSelected: (i) => setState(() => _filter = i),
         ),
@@ -95,41 +118,57 @@ class _RequestsTabState extends State<RequestsTab> {
 
   Widget _body() {
     if (_mine == null && _error == null) {
-      return const Center(child: CircularProgressIndicator());
+      return ListView(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+        children: const [SkeletonCards(count: 3)],
+      );
     }
     if (_mine == null) {
       return ListView(children: [
-        const SizedBox(height: 60),
+        const SizedBox(height: 40),
         ErrorState(message: _error!, onRetry: _load),
       ]);
     }
     final items = _visible;
     if (items.isEmpty) {
+      final none = (_mine ?? const <Complaint>[]).isEmpty;
       return ListView(
         physics: const AlwaysScrollableScrollPhysics(),
         children: [
-          const SizedBox(height: 40),
+          const SizedBox(height: 24),
           EmptyState(
-            icon: Icons.description_outlined,
-            title: _filter == 0 ? 'No requests yet' : 'Nothing in this list',
-            message: _filter == 0
-                ? 'When you report a concern, you can follow its status here.'
-                : 'Try another filter.',
+            icon: Icons.assignment_outlined,
+            title: none ? 'No reports yet' : 'Nothing in this list',
+            message: none
+                ? 'When you report a concern, you can follow its progress here.'
+                : 'Try another filter above.',
+            action: none
+                ? PrimaryButton(
+                    label: 'Report a concern',
+                    icon: Icons.add_rounded,
+                    onPressed: _openNew)
+                : null,
           ),
-          if (_filter == 0)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 48),
-              child: PrimaryButton(label: 'Report a concern', onPressed: _openNew),
-            ),
         ],
       );
     }
     return ListView.builder(
       physics: const AlwaysScrollableScrollPhysics(),
-      padding: const EdgeInsets.fromLTRB(16, 4, 16, 96),
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 100),
       itemCount: items.length,
       itemBuilder: (_, i) => RequestTile(complaint: items[i]),
     );
+  }
+}
+
+Color _stripColor(ReportStage s) {
+  switch (s) {
+    case ReportStage.resolved:
+      return AppColors.green;
+    case ReportStage.inProgress:
+      return AppColors.navy;
+    case ReportStage.pending:
+      return AppColors.gold;
   }
 }
 
@@ -140,53 +179,65 @@ class RequestTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = complaint;
-    return GestureDetector(
+    return AppCard(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: EdgeInsets.zero,
       onTap: () => Navigator.of(context).push(
           MaterialPageRoute(builder: (_) => RequestDetailScreen(complaint: c))),
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 12),
-        padding: const EdgeInsets.all(14),
-        decoration: cardDecoration(),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+      child: IntrinsicHeight(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text('Request ${requestRef(c.id)}',
-                      style: GoogleFonts.poppins(
-                          fontSize: 13.5, fontWeight: FontWeight.w700)),
+            Container(width: 5, color: _stripColor(stageOf(c.status))),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.all(14),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text('Report ${requestRef(c.id)}',
+                              style: AppText.label),
+                        ),
+                        StatusChip(c.status),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      c.text.trim().isEmpty ? '(Photo only)' : c.text,
+                      maxLines: 3,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppText.body,
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        const Icon(Icons.access_time,
+                            size: 15, color: AppColors.muted),
+                        const SizedBox(width: 4),
+                        Text(timeAgo(c.createdAt), style: AppText.caption),
+                        if (c.photos.isNotEmpty) ...[
+                          const SizedBox(width: 14),
+                          const Icon(Icons.image_outlined,
+                              size: 15, color: AppColors.muted),
+                          const SizedBox(width: 4),
+                          Text('${c.photos.length}', style: AppText.caption),
+                        ],
+                        const Spacer(),
+                        Text('View',
+                            style: GoogleFonts.poppins(
+                                fontSize: 12.5,
+                                fontWeight: FontWeight.w600,
+                                color: AppColors.navy)),
+                        const Icon(Icons.chevron_right,
+                            size: 18, color: AppColors.navy),
+                      ],
+                    ),
+                  ],
                 ),
-                StatusChip(c.status),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Text(
-              c.text.trim().isEmpty ? '(Photo only)' : c.text,
-              maxLines: 3,
-              overflow: TextOverflow.ellipsis,
-              style: GoogleFonts.poppins(fontSize: 13, height: 1.4),
-            ),
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                const Icon(Icons.access_time, size: 14, color: AppColors.muted),
-                const SizedBox(width: 4),
-                Text(timeAgo(c.createdAt),
-                    style: GoogleFonts.poppins(
-                        fontSize: 11.5, color: AppColors.muted)),
-                if (c.photos.isNotEmpty) ...[
-                  const SizedBox(width: 14),
-                  const Icon(Icons.image_outlined,
-                      size: 14, color: AppColors.muted),
-                  const SizedBox(width: 4),
-                  Text('${c.photos.length}',
-                      style: GoogleFonts.poppins(
-                          fontSize: 11.5, color: AppColors.muted)),
-                ],
-                const Spacer(),
-                const Icon(Icons.chevron_right, color: AppColors.muted),
-              ],
+              ),
             ),
           ],
         ),
@@ -207,37 +258,43 @@ class RequestDetailScreen extends StatelessWidget {
       body: Column(
         children: [
           TabHeader(
-            title: 'Request ${requestRef(c.id)}',
-            subtitle: 'Submitted ${DateFormat('MMM d, y - h:mm a').format(c.createdAt)}',
+            title: 'Report ${requestRef(c.id)}',
+            subtitle:
+                'Sent ${DateFormat('MMM d, y - h:mm a').format(c.createdAt)}',
             onBack: () => Navigator.of(context).pop(),
           ),
           Expanded(
             child: ListView(
               padding: const EdgeInsets.all(16),
               children: [
-                Container(
+                AppCard(
                   padding: const EdgeInsets.all(16),
-                  decoration: cardDecoration(),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Row(
                         children: [
-                          Text('Status',
-                              style: GoogleFonts.poppins(
-                                  fontSize: 12.5, color: AppColors.muted)),
-                          const Spacer(),
+                          Expanded(
+                              child: Text('Progress', style: AppText.heading)),
                           StatusChip(c.status),
                         ],
                       ),
-                      const Divider(height: 24),
-                      Text('Details',
-                          style: GoogleFonts.poppins(
-                              fontSize: 12.5, color: AppColors.muted)),
-                      const SizedBox(height: 4),
+                      const SizedBox(height: 16),
+                      _Tracker(stage: stageOf(c.status)),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 14),
+                AppCard(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Your report', style: AppText.heading),
+                      const SizedBox(height: 8),
                       Text(
                         c.text.trim().isEmpty ? '(No description)' : c.text,
-                        style: GoogleFonts.poppins(fontSize: 14, height: 1.5),
+                        style: AppText.body,
                       ),
                       if (c.photos.isNotEmpty) ...[
                         const SizedBox(height: 14),
@@ -248,16 +305,104 @@ class RequestDetailScreen extends StatelessWidget {
                 ),
                 const SizedBox(height: 14),
                 Text(
-                  'You will get a notification when the barangay updates this request.',
+                  'We will send you an alert when the barangay updates this report.',
                   textAlign: TextAlign.center,
-                  style: GoogleFonts.poppins(
-                      fontSize: 11.5, color: AppColors.muted),
+                  style: AppText.caption,
                 ),
               ],
             ),
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Three steps: Received -> In progress -> Resolved.
+class _Tracker extends StatelessWidget {
+  final ReportStage stage;
+  const _Tracker({required this.stage});
+
+  @override
+  Widget build(BuildContext context) {
+    const titles = ['Report received', 'In progress', 'Resolved'];
+    const notes = [
+      'The barangay has your report.',
+      'The barangay is working on it.',
+      'Your concern has been addressed.',
+    ];
+    final current = stage.index; // 0 pending, 1 in progress, 2 resolved
+    final allDone = stage == ReportStage.resolved;
+
+    return Column(
+      children: [
+        for (var i = 0; i < 3; i++)
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Column(
+                children: [
+                  _dot(
+                      done: i < current || allDone,
+                      active: i == current && !allDone),
+                  if (i < 2)
+                    Container(
+                      width: 2,
+                      height: 30,
+                      color: (i < current || allDone)
+                          ? AppColors.green
+                          : AppColors.border,
+                    ),
+                ],
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Padding(
+                  padding: EdgeInsets.only(bottom: i < 2 ? 14 : 0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        titles[i],
+                        style: AppText.label.copyWith(
+                          color: (i <= current || allDone)
+                              ? AppColors.text
+                              : AppColors.muted,
+                        ),
+                      ),
+                      Text(notes[i], style: AppText.caption),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+      ],
+    );
+  }
+
+  Widget _dot({required bool done, required bool active}) {
+    if (done) {
+      return Container(
+        width: 26,
+        height: 26,
+        decoration:
+            const BoxDecoration(color: AppColors.green, shape: BoxShape.circle),
+        child: const Icon(Icons.check, size: 16, color: Colors.white),
+      );
+    }
+    return Container(
+      width: 26,
+      height: 26,
+      decoration: BoxDecoration(
+        color: active ? AppColors.softGold : Colors.white,
+        shape: BoxShape.circle,
+        border: Border.all(
+            color: active ? AppColors.gold : AppColors.border, width: 2),
+      ),
+      child: active
+          ? const Icon(Icons.more_horiz, size: 16, color: AppColors.goldDark)
+          : null,
     );
   }
 }

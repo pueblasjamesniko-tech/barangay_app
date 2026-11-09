@@ -13,10 +13,13 @@ Future<void> main() async {
 
   final auth = AuthProvider();
 
-  // The API's login token lasts 60 minutes. When it expires any request returns 401:
-  // log out, close every open screen and show the login screen.
+  // Any request that returns 401 means the login is no longer valid
+  // (token expired after 60 minutes, or the account was opened on another phone).
+  // Log out, close every open screen and show the login screen.
   ApiClient.instance.onUnauthorized = () {
-    auth.logout(message: 'Your session has expired. Please log in again.');
+    auth.logout(
+        message: 'You were logged out. Your session expired or your account '
+            'was opened on another device. Please log in again.');
     navigatorKey.currentState?.popUntil((r) => r.isFirst);
   };
 
@@ -38,16 +41,29 @@ class BarangayApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       navigatorKey: navigatorKey,
       theme: buildTheme(),
-      // In Chrome the app is shown as a phone-width column
-      builder: (context, child) => ColoredBox(
-        color: const Color(0xFFE3E8F0),
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 480),
-            child: child,
+      builder: (context, child) {
+        // Respect the phone's text-size setting, but not so big that the layout breaks.
+        final mq = MediaQuery.of(context);
+        final scaled = mq.copyWith(
+          textScaler: mq.textScaler.clamp(
+            minScaleFactor: 1.0,
+            maxScaleFactor: 1.25,
           ),
-        ),
-      ),
+        );
+        // In Chrome the app is shown as a phone-width column.
+        return MediaQuery(
+          data: scaled,
+          child: ColoredBox(
+            color: const Color(0xFFE3E8F0),
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 480),
+                child: child,
+              ),
+            ),
+          ),
+        );
+      },
       home: Consumer<AuthProvider>(
         builder: (context, auth, _) {
           if (!auth.ready) {

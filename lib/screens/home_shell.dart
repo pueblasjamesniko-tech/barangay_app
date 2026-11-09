@@ -1,16 +1,17 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../core/bus.dart';
 import '../core/theme.dart';
 import '../services/notif_provider.dart';
 import 'create_post_screen.dart';
+import 'feed_screen.dart';
 import 'home_tab.dart';
 import 'notifications_tab.dart';
 import 'profile_tab.dart';
 import 'requests_tab.dart';
 
-/// Bottom navigation: Home, Requests, [+], Notifications, Profile
+/// Bottom navigation with 5 clear places:
+/// Home (0), Community (1), My Reports (2), Alerts (3), Profile (4).
 class HomeShell extends StatefulWidget {
   const HomeShell({super.key});
 
@@ -47,6 +48,9 @@ class _HomeShellState extends State<HomeShell> {
 
   @override
   Widget build(BuildContext context) {
+    // The "Report a concern" button is only shown where it makes sense.
+    final showFab = _index == 1 || _index == 2;
+
     return ChangeNotifierProvider<NotifProvider>.value(
       value: _notif,
       child: Scaffold(
@@ -54,84 +58,70 @@ class _HomeShellState extends State<HomeShell> {
           index: _index,
           children: [
             HomeTab(onGoto: _go),
-            const RequestsTab(),
+            FeedScreen(embedded: true, onGoto: _go),
+            RequestsTab(onGoto: _go),
             NotificationsTab(onGoto: _go),
             ProfileTab(onGoto: _go),
           ],
         ),
-        floatingActionButton: FloatingActionButton(
-          backgroundColor: AppColors.gold,
-          foregroundColor: AppColors.navy,
-          shape: const CircleBorder(),
-          onPressed: () => Navigator.of(context).push(
-            MaterialPageRoute(builder: (_) => const CreatePostScreen()),
-          ),
-          child: const Icon(Icons.add, size: 30),
-        ),
-        floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
-        bottomNavigationBar: BottomAppBar(
-          color: Colors.white,
-          surfaceTintColor: Colors.transparent,
-          shape: const CircularNotchedRectangle(),
-          notchMargin: 8,
-          height: 64,
-          padding: EdgeInsets.zero,
-          child: Row(
-            children: [
-              _item(0, Icons.home_rounded, 'Home'),
-              _item(1, Icons.description_outlined, 'Requests'),
-              const SizedBox(width: 64),
-              _item(2, Icons.notifications_none_rounded, 'Notifications',
-                  withDot: true),
-              _item(3, Icons.person_outline_rounded, 'Profile'),
-            ],
-          ),
+        floatingActionButton: showFab
+            ? FloatingActionButton.extended(
+                backgroundColor: AppColors.gold,
+                foregroundColor: AppColors.navy,
+                elevation: 3,
+                onPressed: () => openReportFlow(context, _go),
+                icon: const Icon(Icons.add_rounded, size: 26),
+                label: const Text(
+                  'Report a concern',
+                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+                ),
+              )
+            : null,
+        bottomNavigationBar: NavigationBar(
+          selectedIndex: _index,
+          onDestinationSelected: _go,
+          destinations: [
+            const NavigationDestination(
+              icon: Icon(Icons.home_outlined),
+              selectedIcon: Icon(Icons.home_rounded),
+              label: 'Home',
+            ),
+            const NavigationDestination(
+              icon: Icon(Icons.forum_outlined),
+              selectedIcon: Icon(Icons.forum_rounded),
+              label: 'Community',
+            ),
+            const NavigationDestination(
+              icon: Icon(Icons.assignment_outlined),
+              selectedIcon: Icon(Icons.assignment_rounded),
+              label: 'My Reports',
+            ),
+            NavigationDestination(
+              icon: _bell(false),
+              selectedIcon: _bell(true),
+              label: 'Alerts',
+            ),
+            const NavigationDestination(
+              icon: Icon(Icons.person_outline_rounded),
+              selectedIcon: Icon(Icons.person_rounded),
+              label: 'Profile',
+            ),
+          ],
         ),
       ),
     );
   }
 
-  Widget _item(int i, IconData icon, String label, {bool withDot = false}) {
-    final selected = _index == i;
-    final color = selected ? AppColors.navy : AppColors.muted;
-    return Expanded(
-      child: InkWell(
-        onTap: () => _go(i),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Stack(
-              clipBehavior: Clip.none,
-              children: [
-                Icon(icon, color: color, size: 24),
-                if (withDot)
-                  Consumer<NotifProvider>(
-                    builder: (_, n, __) => n.unread > 0
-                        ? Positioned(
-                            right: -2,
-                            top: -1,
-                            child: Container(
-                              width: 9,
-                              height: 9,
-                              decoration: const BoxDecoration(
-                                  color: AppColors.red, shape: BoxShape.circle),
-                            ),
-                          )
-                        : const SizedBox.shrink(),
-                  ),
-              ],
-            ),
-            const SizedBox(height: 2),
-            Text(
-              label,
-              style: GoogleFonts.poppins(
-                fontSize: 10,
-                color: color,
-                fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-              ),
-            ),
-          ],
-        ),
+  Widget _bell(bool selected) {
+    return Consumer<NotifProvider>(
+      builder: (_, n, __) => Badge(
+        isLabelVisible: n.unread > 0,
+        backgroundColor: AppColors.red,
+        textColor: Colors.white,
+        label: Text(n.unread > 9 ? '9+' : '${n.unread}'),
+        child: Icon(selected
+            ? Icons.notifications_rounded
+            : Icons.notifications_none_rounded),
       ),
     );
   }

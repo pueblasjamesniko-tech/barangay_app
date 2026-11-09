@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../core/api.dart';
@@ -12,10 +13,12 @@ import '../services/repo.dart';
 import '../widgets/common.dart';
 import '../widgets/feed_card.dart';
 import 'announcements_screen.dart';
+import 'chatbot_screen.dart';
 import 'create_post_screen.dart';
-import 'feed_screen.dart';
+import 'requests_tab.dart';
 
 class HomeTab extends StatefulWidget {
+  /// Switches the bottom tab: 0 Home, 1 Community, 2 My Reports, 3 Alerts, 4 Profile.
   final void Function(int) onGoto;
   const HomeTab({super.key, required this.onGoto});
 
@@ -26,6 +29,7 @@ class HomeTab extends StatefulWidget {
 class _HomeTabState extends State<HomeTab> {
   Profile? _profile;
   List<Announcement>? _ann;
+  List<Complaint> _mine = const [];
   String? _error;
 
   @override
@@ -42,20 +46,30 @@ class _HomeTabState extends State<HomeTab> {
   }
 
   Future<void> _load() async {
+    final myId = context.read<AuthProvider>().user?.userId;
     try {
       final ann = await Repo.announcements();
       final p = await Repo.profile();
+      var mine = _mine;
+      try {
+        final all = await Repo.complaints();
+        mine = all.where((c) => c.userId == myId).toList()
+          ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      } catch (_) {
+        // the "latest report" card just keeps what it had
+      }
       if (!mounted) return;
       setState(() {
         _ann = ann;
         _profile = p;
+        _mine = mine;
         _error = null;
       });
     } catch (e) {
       if (!mounted) return;
       if (_ann == null) {
-        setState(() =>
-            _error = e is ApiException ? e.message : 'Could not load the home screen.');
+        setState(() => _error =
+            e is ApiException ? e.message : 'Could not load the home screen.');
       }
     }
   }
@@ -67,298 +81,315 @@ class _HomeTabState extends State<HomeTab> {
     return 'Good evening';
   }
 
+  void _report() => openReportFlow(context, widget.onGoto);
+
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthProvider>();
     final name = _profile?.fullName ?? auth.user?.fullName ?? '';
 
-    return Column(
-      children: [
-        TabHeader(
-          title: AppConfig.barangayName,
-          subtitle: 'Barangay Portal',
-          trailing: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Consumer<NotifProvider>(
-                builder: (_, n, __) => Stack(
-                  children: [
-                    IconButton(
-                      onPressed: () => widget.onGoto(2),
-                      icon: const Icon(Icons.notifications_none_rounded,
-                          color: Colors.white),
-                    ),
-                    if (n.unread > 0)
-                      Positioned(
-                        right: 10,
-                        top: 10,
-                        child: Container(
-                          width: 9,
-                          height: 9,
-                          decoration: const BoxDecoration(
-                              color: AppColors.red, shape: BoxShape.circle),
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-              GestureDetector(
-                onTap: () => widget.onGoto(3),
-                child: Avatar(
-                    path: _profile?.profilePicturePath, name: name, radius: 18),
-              ),
-            ],
-          ),
-        ),
-        Expanded(
-          child: RefreshIndicator(
-            onRefresh: _load,
-            child: ListView(
-              physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-              children: [
-                _greetingCard(name),
-                const SizedBox(height: 16),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _Action(
-                        icon: Icons.campaign_outlined,
-                        label: 'Report\nConcern',
-                        bg: AppColors.navy,
-                        fg: Colors.white,
-                        onTap: () => Navigator.of(context).push(MaterialPageRoute(
-                            builder: (_) => const CreatePostScreen())),
-                      ),
-                    ),
-                    Expanded(
-                      child: _Action(
-                        icon: Icons.description_outlined,
-                        label: 'Track\nRequest',
-                        bg: AppColors.gold,
-                        fg: AppColors.navy,
-                        onTap: () => widget.onGoto(1),
-                      ),
-                    ),
-                    Expanded(
-                      child: _Action(
-                        icon: Icons.forum_outlined,
-                        label: 'Community\nFeed',
-                        bg: AppColors.softBlue,
-                        fg: AppColors.navy,
-                        onTap: () => Navigator.of(context).push(
-                            MaterialPageRoute(builder: (_) => const FeedScreen())),
-                      ),
-                    ),
-                    Expanded(
-                      child: _Action(
-                        icon: Icons.notifications_active_outlined,
-                        label: 'View\nAnnouncements',
-                        bg: AppColors.softBlue,
-                        fg: AppColors.navy,
-                        onTap: () => Navigator.of(context).push(MaterialPageRoute(
-                            builder: (_) => const AnnouncementsScreen())),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 20),
-                Text('Quick Info',
-                    style: GoogleFonts.poppins(
-                        fontSize: 15, fontWeight: FontWeight.w700)),
-                const SizedBox(height: 10),
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: cardDecoration(),
-                  child: Column(
-                    children: [
-                      _info(Icons.phone_outlined, 'Barangay Contact',
-                          AppConfig.contactNumber),
-                      const Divider(height: 22),
-                      _info(Icons.mail_outline, 'Email Address',
-                          AppConfig.contactEmail),
-                      const Divider(height: 22),
-                      _info(Icons.access_time, 'Office Hours',
-                          AppConfig.officeHours),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 20),
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text('Recent Updates',
-                          style: GoogleFonts.poppins(
-                              fontSize: 15, fontWeight: FontWeight.w700)),
-                    ),
-                    TextButton(
-                      onPressed: () => Navigator.of(context).push(
-                          MaterialPageRoute(builder: (_) => const FeedScreen())),
-                      child: Text('View all ›',
-                          style: GoogleFonts.poppins(
-                              fontSize: 12.5, fontWeight: FontWeight.w600)),
-                    ),
-                  ],
-                ),
-                _recent(),
-              ],
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _recent() {
-    if (_ann == null && _error == null) {
-      return const Padding(
-        padding: EdgeInsets.all(24),
-        child: Center(child: CircularProgressIndicator()),
-      );
-    }
-    if (_ann == null) {
-      return ErrorState(message: _error!, onRetry: _load);
-    }
-    if (_ann!.isEmpty) {
-      return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 16),
-        child: Text('No announcements yet.',
-            style: GoogleFonts.poppins(fontSize: 12.5, color: AppColors.muted)),
-      );
-    }
-    return Column(
-      children: [
-        for (final a in _ann!.take(2)) FeedCard(item: FeedItem.fromAnnouncement(a)),
-      ],
-    );
-  }
-
-  Widget _greetingCard(String name) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: cardDecoration(),
-      child: Row(
+    return RefreshIndicator(
+      onRefresh: _load,
+      child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: EdgeInsets.zero,
         children: [
-          Expanded(
+          _hero(name),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(_greeting,
-                    style: GoogleFonts.poppins(
-                        fontSize: 12, color: AppColors.muted)),
-                const SizedBox(height: 2),
-                Text(name,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: GoogleFonts.poppins(
-                        fontSize: 18, fontWeight: FontWeight.w700)),
-                Text('Barangay ${AppConfig.barangayName}',
-                    style: GoogleFonts.poppins(
-                        fontSize: 12, color: AppColors.muted)),
-                const SizedBox(height: 8),
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                  decoration: BoxDecoration(
-                    border: Border.all(color: AppColors.green),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(Icons.verified_user_outlined,
-                          size: 13, color: AppColors.green),
-                      const SizedBox(width: 4),
-                      Text('Verified',
-                          style: GoogleFonts.poppins(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w600,
-                              color: AppColors.green)),
-                    ],
-                  ),
-                ),
-              ],
+              children: _error != null && _ann == null
+                  ? [
+                      const SizedBox(height: 24),
+                      ErrorState(message: _error!, onRetry: _load),
+                    ]
+                  : _sections(),
             ),
-          ),
-          Container(
-            width: 96,
-            height: 80,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(14),
-              gradient: const LinearGradient(
-                colors: [AppColors.softBlue, AppColors.softGold],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-            ),
-            child: const Icon(Icons.location_city,
-                size: 40, color: AppColors.navy),
           ),
         ],
       ),
     );
   }
 
-  Widget _info(IconData icon, String label, String value) {
-    return Row(
+  // ---------------- top part ----------------
+
+  Widget _hero(String name) {
+    final top = MediaQuery.of(context).padding.top;
+    final trimmed = name.trim();
+    final first = trimmed.isEmpty ? '' : trimmed.split(RegExp(r'\s+')).first;
+    return Container(
+      padding: EdgeInsets.fromLTRB(20, top + 16, 20, 22),
+      decoration: const BoxDecoration(
+        color: AppColors.navy,
+        borderRadius: BorderRadius.vertical(bottom: Radius.circular(28)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              GestureDetector(
+                onTap: () => widget.onGoto(4),
+                child: Avatar(
+                    path: _profile?.profilePicturePath, name: name, radius: 24),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('$_greeting,',
+                        style: GoogleFonts.poppins(
+                            fontSize: 13, color: Colors.white70)),
+                    Text(
+                      first.isEmpty ? 'Welcome' : first,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: GoogleFonts.poppins(
+                          fontSize: 21,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.white,
+                          height: 1.2),
+                    ),
+                  ],
+                ),
+              ),
+              Consumer<NotifProvider>(
+                builder: (_, n, __) => IconButton(
+                  tooltip: 'Alerts',
+                  onPressed: () => widget.onGoto(3),
+                  icon: Badge(
+                    isLabelVisible: n.unread > 0,
+                    backgroundColor: AppColors.red,
+                    textColor: Colors.white,
+                    label: Text(n.unread > 9 ? '9+' : '${n.unread}'),
+                    child: const Icon(Icons.notifications_none_rounded,
+                        color: Colors.white, size: 28),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 18),
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 46,
+                      height: 46,
+                      decoration: const BoxDecoration(
+                          color: AppColors.softGold, shape: BoxShape.circle),
+                      child: const Icon(Icons.campaign_rounded,
+                          color: AppColors.goldDark, size: 26),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Have a concern?', style: AppText.heading),
+                          Text(
+                              'Tell the barangay what is happening in your area.',
+                              style: AppText.small),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                PrimaryButton(
+                  label: 'Report a concern',
+                  icon: Icons.arrow_forward_rounded,
+                  onPressed: _report,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ---------------- sections below ----------------
+
+  List<Widget> _sections() {
+    return [
+      if (_mine.isNotEmpty) ...[
+        SectionTitle('Your latest report',
+            actionLabel: 'See all', onAction: () => widget.onGoto(2)),
+        RequestTile(complaint: _mine.first),
+      ],
+      const SectionTitle('What do you need?'),
+      Row(
+        children: [
+          Expanded(
+            child: _QuickTile(
+              icon: Icons.assignment_outlined,
+              title: 'My Reports',
+              subtitle: 'Follow your reports',
+              onTap: () => widget.onGoto(2),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: _QuickTile(
+              icon: Icons.forum_outlined,
+              title: 'Community',
+              subtitle: 'See what is happening',
+              onTap: () => widget.onGoto(1),
+            ),
+          ),
+        ],
+      ),
+      const SizedBox(height: 12),
+      Row(
+        children: [
+          Expanded(
+            child: _QuickTile(
+              icon: Icons.campaign_outlined,
+              title: 'Announcements',
+              subtitle: 'From the barangay',
+              onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => const AnnouncementsScreen())),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: _QuickTile(
+              icon: Icons.help_outline_rounded,
+              title: 'Help & FAQ',
+              subtitle: 'Quick answers',
+              onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const ChatbotScreen())),
+            ),
+          ),
+        ],
+      ),
+      SectionTitle('Latest announcement',
+          actionLabel: 'See all',
+          onAction: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const AnnouncementsScreen()))),
+      _latestAnnouncement(),
+      const SectionTitle('Barangay office'),
+      AppCard(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          children: [
+            _info(Icons.phone_outlined, 'Phone', AppConfig.contactNumber,
+                copy: true),
+            const Divider(height: 22),
+            _info(Icons.mail_outline, 'Email', AppConfig.contactEmail,
+                copy: true),
+            const Divider(height: 22),
+            _info(Icons.access_time, 'Office hours', AppConfig.officeHours),
+          ],
+        ),
+      ),
+    ];
+  }
+
+  Widget _latestAnnouncement() {
+    if (_ann == null) return const SkeletonCards(count: 1);
+    if (_ann!.isEmpty) {
+      return AppCard(
+        child: Text('No announcements yet.', style: AppText.small),
+      );
+    }
+    return FeedCard(item: FeedItem.fromAnnouncement(_ann!.first));
+  }
+
+  Widget _info(IconData icon, String label, String value, {bool copy = false}) {
+    final row = Row(
       children: [
-        Icon(icon, color: AppColors.navy, size: 22),
-        const SizedBox(width: 14),
+        Container(
+          width: 40,
+          height: 40,
+          decoration: const BoxDecoration(
+              color: AppColors.navySoft, shape: BoxShape.circle),
+          child: Icon(icon, color: AppColors.navy, size: 21),
+        ),
+        const SizedBox(width: 12),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(label,
-                  style: GoogleFonts.poppins(
-                      fontSize: 11.5, fontWeight: FontWeight.w600)),
+              Text(label, style: AppText.caption),
               Text(value,
                   style: GoogleFonts.poppins(
-                      fontSize: 11.5, color: AppColors.muted)),
+                      fontSize: 14, fontWeight: FontWeight.w600)),
             ],
           ),
         ),
+        if (copy)
+          const Icon(Icons.copy_rounded, size: 18, color: AppColors.muted),
       ],
+    );
+    if (!copy) return row;
+    return InkWell(
+      borderRadius: BorderRadius.circular(10),
+      onTap: () async {
+        await Clipboard.setData(ClipboardData(text: value));
+        if (mounted) showMsg(context, '$label copied');
+      },
+      child: row,
     );
   }
 }
 
-class _Action extends StatelessWidget {
+class _QuickTile extends StatelessWidget {
   final IconData icon;
-  final String label;
-  final Color bg;
-  final Color fg;
+  final String title;
+  final String subtitle;
   final VoidCallback onTap;
-  const _Action({
+  const _QuickTile({
     required this.icon,
-    required this.label,
-    required this.bg,
-    required this.fg,
+    required this.title,
+    required this.subtitle,
     required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
+    return AppCard(
       onTap: onTap,
-      child: Container(
+      padding: const EdgeInsets.all(14),
+      child: SizedBox(
         height: 92,
-        margin: const EdgeInsets.symmetric(horizontal: 4),
-        decoration:
-            BoxDecoration(color: bg, borderRadius: BorderRadius.circular(16)),
         child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Icon(icon, color: fg, size: 26),
-            const SizedBox(height: 6),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 2),
-              child: Text(
-                label,
-                textAlign: TextAlign.center,
-                maxLines: 2,
-                style: GoogleFonts.poppins(
-                    fontSize: 10, fontWeight: FontWeight.w600, color: fg),
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: AppColors.navySoft,
+                borderRadius: BorderRadius.circular(12),
               ),
+              child: Icon(icon, color: AppColors.navy, size: 23),
+            ),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.poppins(
+                        fontSize: 14.5, fontWeight: FontWeight.w700)),
+                Text(subtitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppText.caption),
+              ],
             ),
           ],
         ),

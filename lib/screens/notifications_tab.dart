@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../core/api.dart';
 import '../core/bus.dart';
@@ -10,7 +9,7 @@ import '../services/repo.dart';
 import '../widgets/common.dart';
 import 'requests_tab.dart';
 
-/// Notifications from the API (status changes on the resident's own requests).
+/// Alerts from the API (status changes on the resident's own reports).
 class NotificationsTab extends StatefulWidget {
   final void Function(int) onGoto;
   const NotificationsTab({super.key, required this.onGoto});
@@ -50,17 +49,14 @@ class _NotificationsTabState extends State<NotificationsTab> {
     } catch (e) {
       if (!mounted) return;
       if (_items == null) {
-        setState(() => _error = e is ApiException
-            ? e.message
-            : 'Could not load your notifications.');
+        setState(() => _error =
+            e is ApiException ? e.message : 'Could not load your alerts.');
       }
     }
   }
 
-  List<AppNotification> get _visible {
-    final l = _items ?? const <AppNotification>[];
-    return _filter == 1 ? l.where((n) => !n.isRead).toList() : l;
-  }
+  int get _unread =>
+      (_items ?? const <AppNotification>[]).where((n) => !n.isRead).length;
 
   Future<void> _markAll() async {
     final items = _items;
@@ -84,7 +80,7 @@ class _NotificationsTabState extends State<NotificationsTab> {
     final notif = context.read<NotifProvider>();
     if (!n.isRead) {
       setState(() => n.isRead = true);
-      notif.setUnread((_items ?? []).where((x) => !x.isRead).length);
+      notif.setUnread(_unread);
       Repo.markRead(n.id); // best effort
     }
     try {
@@ -92,14 +88,14 @@ class _NotificationsTabState extends State<NotificationsTab> {
       if (!mounted) return;
       final match = all.where((c) => c.id == n.complaintId);
       if (match.isEmpty) {
-        showMsg(context, 'That request is no longer available.', error: true);
+        showMsg(context, 'That report is no longer available.', error: true);
         return;
       }
       Navigator.of(context).push(MaterialPageRoute(
           builder: (_) => RequestDetailScreen(complaint: match.first)));
-    } catch (e) {
+    } catch (_) {
       if (!mounted) return;
-      widget.onGoto(1);
+      widget.onGoto(2);
     }
   }
 
@@ -108,12 +104,12 @@ class _NotificationsTabState extends State<NotificationsTab> {
     return Column(
       children: [
         TabHeader(
-          title: 'Notifications',
-          subtitle: 'Updates on your requests',
-          trailing: IconButton(
-            tooltip: 'Mark all as read',
-            onPressed: _markAll,
-            icon: const Icon(Icons.done_all, color: Colors.white),
+          title: 'Alerts',
+          subtitle: _unread > 0 ? '$_unread unread' : 'You are all caught up',
+          trailing: TextButton.icon(
+            onPressed: _unread > 0 ? _markAll : null,
+            icon: const Icon(Icons.done_all_rounded, size: 20),
+            label: const Text('Mark all read'),
           ),
         ),
         const SizedBox(height: 12),
@@ -130,94 +126,128 @@ class _NotificationsTabState extends State<NotificationsTab> {
     );
   }
 
+  bool _isToday(DateTime d) {
+    final now = DateTime.now();
+    return d.year == now.year && d.month == now.month && d.day == now.day;
+  }
+
   Widget _body() {
     if (_items == null && _error == null) {
-      return const Center(child: CircularProgressIndicator());
+      return ListView(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+        children: const [SkeletonCards(count: 4)],
+      );
     }
     if (_items == null) {
       return ListView(children: [
-        const SizedBox(height: 60),
+        const SizedBox(height: 40),
         ErrorState(message: _error!, onRetry: _load),
       ]);
     }
-    final items = _visible;
-    if (items.isEmpty) {
+    final all = _items!;
+    final shown = _filter == 1 ? all.where((n) => !n.isRead).toList() : all;
+    if (shown.isEmpty) {
       return ListView(children: [
-        const SizedBox(height: 40),
+        const SizedBox(height: 24),
         EmptyState(
           icon: Icons.notifications_none_rounded,
-          title: _filter == 1 ? 'No unread notifications' : 'No notifications yet',
-          message: 'You will be notified when the barangay updates your requests.',
+          title: _filter == 1 ? 'No unread alerts' : 'No alerts yet',
+          message:
+              'We will tell you here when the barangay updates your reports.',
         ),
       ]);
     }
-    return ListView.builder(
+    final today = shown.where((n) => _isToday(n.createdAt)).toList();
+    final earlier = shown.where((n) => !_isToday(n.createdAt)).toList();
+    return ListView(
       physics: const AlwaysScrollableScrollPhysics(),
-      padding: const EdgeInsets.fromLTRB(16, 4, 16, 96),
-      itemCount: items.length,
-      itemBuilder: (_, i) => _tile(items[i]),
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
+      children: [
+        if (today.isNotEmpty) ...[
+          _heading('Today'),
+          for (final n in today) _tile(n),
+        ],
+        if (earlier.isNotEmpty) ...[
+          _heading('Earlier'),
+          for (final n in earlier) _tile(n),
+        ],
+      ],
     );
   }
 
+  Widget _heading(String t) => Padding(
+        padding: const EdgeInsets.only(top: 12, bottom: 8),
+        child: Text(t, style: AppText.label.copyWith(color: AppColors.muted)),
+      );
+
   (IconData, Color, Color) _look(String message) {
     final m = message.toLowerCase();
-    if (m.contains('resolved') || m.contains('approved') || m.contains('done')) {
-      return (Icons.check_circle_outline, AppColors.green, AppColors.softGreen);
+    if (m.contains('resolved') ||
+        m.contains('approved') ||
+        m.contains('done')) {
+      return (
+        Icons.check_circle_outline_rounded,
+        AppColors.green,
+        AppColors.softGreen
+      );
     }
     if (m.contains('progress') || m.contains('updated')) {
-      return (Icons.campaign_outlined, AppColors.navy, AppColors.softBlue);
+      return (Icons.autorenew_rounded, AppColors.navy, AppColors.softBlue);
     }
-    return (Icons.notifications_none_rounded, const Color(0xFFB36B00),
-        AppColors.softGold);
+    return (
+      Icons.notifications_none_rounded,
+      AppColors.goldDark,
+      AppColors.softGold
+    );
   }
 
   Widget _tile(AppNotification n) {
     final (icon, fg, bg) = _look(n.message);
-    return GestureDetector(
+    return AppCard(
+      margin: const EdgeInsets.only(bottom: 10),
+      color: n.isRead ? Colors.white : AppColors.navySoft,
       onTap: () => _open(n),
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 10),
-        padding: const EdgeInsets.all(12),
-        decoration: cardDecoration(14).copyWith(
-          border: n.isRead
-              ? null
-              : Border.all(color: AppColors.gold.withOpacity(0.7), width: 1.2),
-        ),
-        child: Row(
-          children: [
+      child: Row(
+        children: [
+          Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(color: bg, shape: BoxShape.circle),
+            child: Icon(icon, color: fg, size: 24),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  n.message,
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppText.body.copyWith(
+                    fontSize: 13.5,
+                    fontWeight: n.isRead ? FontWeight.w500 : FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'Report ${requestRef(n.complaintId)} - ${timeAgo(n.createdAt)}',
+                  style: AppText.caption,
+                ),
+              ],
+            ),
+          ),
+          if (!n.isRead)
             Container(
-              width: 42,
-              height: 42,
-              decoration: BoxDecoration(color: bg, shape: BoxShape.circle),
-              child: Icon(icon, color: fg, size: 22),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    n.message,
-                    maxLines: 3,
-                    overflow: TextOverflow.ellipsis,
-                    style: GoogleFonts.poppins(
-                      fontSize: 12.5,
-                      height: 1.35,
-                      fontWeight: n.isRead ? FontWeight.w500 : FontWeight.w700,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    '${requestRef(n.complaintId)} - ${timeAgo(n.createdAt)}',
-                    style: GoogleFonts.poppins(
-                        fontSize: 11, color: AppColors.muted),
-                  ),
-                ],
-              ),
-            ),
+              width: 10,
+              height: 10,
+              margin: const EdgeInsets.only(left: 8),
+              decoration: const BoxDecoration(
+                  color: AppColors.red, shape: BoxShape.circle),
+            )
+          else
             const Icon(Icons.chevron_right, color: AppColors.muted),
-          ],
-        ),
+        ],
       ),
     );
   }

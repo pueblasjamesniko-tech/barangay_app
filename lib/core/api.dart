@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'dart:async';
 
 import 'package:dio/dio.dart';
@@ -57,7 +58,7 @@ class ApiClient {
 
     if (value != null) {
       _ping();
-      _heartbeat = Timer.periodic(const Duration(minutes: 5), (_) => _ping());
+      _heartbeat = Timer.periodic(const Duration(minutes: 2), (_) => _ping());
     } else if (old != null) {
       _logoutOnServer(old);
     }
@@ -143,9 +144,12 @@ class ApiClient {
       return ApiResult(
         ok: false,
         httpStatus: 0,
-        message: 'Cannot reach the server (${AppConfig.baseUrl}).\n'
-            'Make sure the API is running, the firewall allows it, '
-            'and both devices are on the same hotspot.',
+        message: kDebugMode
+            ? 'Cannot reach the server (${AppConfig.baseUrl}).\n'
+                'Make sure the API is running, the firewall allows it, '
+                'and both devices are on the same network.'
+            : 'We cannot reach the barangay server right now. '
+                'Please check your internet connection and try again.',
       );
     } catch (e) {
       return ApiResult(
