@@ -5,6 +5,15 @@ allprojects {
     }
 }
 
+// FIX: camera_android_camerax build error (CallbackToFutureAdapter not found)
+subprojects {
+    if (name == "camera_android_camerax") {
+        pluginManager.withPlugin("com.android.library") {
+            project.dependencies.add("implementation", "androidx.concurrent:concurrent-futures:1.2.0")
+        }
+    }
+}
+
 val newBuildDir: Directory =
     rootProject.layout.buildDirectory
         .dir("../../build")
